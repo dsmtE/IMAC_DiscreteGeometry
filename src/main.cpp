@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <memory>
 
+#include <cairo.h>
 
 #include <cstdlib>
 #include <cmath>

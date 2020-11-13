@@ -27,6 +27,7 @@ set(CMAKE_INSTALL_PREFIX ${PROJECT_SOURCE_DIR}/install)
 # set(Boost_USE_STATIC_LIBS ON)
 find_package(Boost REQUIRED)
 find_package(zlib REQUIRED)
+find_package(unofficial-cairo CONFIG REQUIRED)
 
 # ////////////////////////////// EXTERNAL LIBRARIES //////////////////////////////// #
 # Use CMake ExternalProject to build dependencies
@@ -34,7 +35,7 @@ include (ExternalProject)
 
 set(BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/external")
 
-set(DGTAL_CONFIG_FLAGS -DBUILD_EXAMPLES=OFF -DBUILD_SHARED_LIBS=OFF -DWITH_GMP=OFF -DWITH_ITK=OFF -DWITH_CAIRO=OFF -DWITH_QGLVIEWER=OFF -DWITH_MAGICK=OFF)
+set(DGTAL_CONFIG_FLAGS -DBUILD_EXAMPLES=OFF -DBUILD_SHARED_LIBS=OFF -DWITH_GMP=OFF -DWITH_ITK=OFF -DWITH_CAIRO=ON -DWITH_QGLVIEWER=OFF -DWITH_MAGICK=OFF)
 set(DGTAL_TARGET dgtal)
 ExternalProject_Add(${DGTAL_TARGET}
     # Download Archive from Web Server
@@ -62,7 +63,7 @@ set(DGTAL_LIBRARIES ${CMAKE_INSTALL_PREFIX}/lib/DGtald.lib)
 
 set(INCLUDES_DIRS ${Boost_INCLUDE_DIRS} ${ZLIB_INCLUDE_DIRS} ${CMAKE_INSTALL_PREFIX}/include)
 set(LINK_DIRS ${Boost_LIBRARY_DIR})
-set(LIBRARIES ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${DGTAL_LIBRARIES})
+set(LIBRARIES ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${DGTAL_LIBRARIES} unofficial::cairo::cairo)
 
 set(FILE_NAME discreteGeometry)
 
@@ -70,5 +71,5 @@ add_executable(${FILE_NAME} ${MAIN_FILE} ${HEADERS_FILES} ${SRC_FILES})
 
 add_dependencies(${FILE_NAME} ${DGTAL_TARGET})
 
-target_link_libraries(${FILE_NAME} ${LIBRARIES})
+target_link_libraries(${FILE_NAME} PRIVATE ${LIBRARIES})
 target_include_directories(${FILE_NAME} PUBLIC ${INCLUDES_DIRS})
