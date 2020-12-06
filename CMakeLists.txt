@@ -9,7 +9,7 @@ link_directories(${DGTAL_LIBRARY_DIRS})
 
 set(FILE_NAME TD1)
 
-add_subdirectory(src)
-
 set(LIBRAIRIES ${DGTAL_LIBRARIES})
 set(INCLUDE_DIRECTORIES ${DGTAL_INCLUDE_DIRS})
+
+add_subdirectory(src)
