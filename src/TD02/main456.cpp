@@ -14,6 +14,13 @@
 #include "DGtal/geometry/curves/FreemanChain.h"
 #include "DGtal/geometry/curves/GreedySegmentation.h"
 
+#include <iostream>
+#include <algorithm>
+#include <iterator>
+#include <vector>
+
+#include "cmath" 
+
 using namespace std;
 using namespace DGtal;
 using namespace Z2i;
@@ -70,63 +77,34 @@ bool CurveIsInBound(const Z2i::Curve& curve, const Domain& domain) {
     return in;
 }
 
-template <class T>
-int exportCurves(const Domain& domain, const std::vector<T>& objects, const bool is4_8, const std::string& fileName, const std::string& suffix, const bool boundElimination = false) {
-    int count = 0;
-    Board2D aBoard;
-    for (auto &obj : objects) {
-        const Z2i::Curve curve = boundaryCurve(obj, is4_8);
 
-        if(!boundElimination || CurveIsInBound(curve, domain)) {
-
-            aBoard << curve;
-            /*
-            for (const Z2i::SCell &point : curve) {
-                auto tmp = point.preCell().coordinates;
-                aBoard << tmp;
-            }
-            */
-            ++count;
-        }
-    }
-    const std::string filePath = "./img/boundaryCurve_" + fileName + "_" + (is4_8 ? "4_8" : "8_4")  + "_" + suffix + ".pdf";
-    aBoard.saveCairo(filePath.c_str(), Board2D::CairoPDF);
-    std::cout << "boundaries saved as path : " << filePath << std::endl;
-
-    return count;
-}
 
 template <class T>
-void exportCurvesAndDss(const Domain& domain, const std::vector<T>& objects, const bool is4_8, const std::string& fileName) {
+void writeCsv(std::string filename, std::vector<std::pair<std::string, std::vector<T>>> dataset) {
+    std::ofstream csv(filename);
 
-    Board2D aBoard;
-    for (auto &obj : objects) {
-        vector<Z2i::Point> boundaryPoints = getBoundariesPoints(obj, is4_8);
-        Z2i::Curve curve;
-        curve.initFromVector(boundaryPoints);
+    struct comma_separator : std::numpunct<char> {
+        virtual char do_decimal_point() const override { return ','; }
+    };
+    const std::string separator(";");
+    csv.imbue(std::locale(std::cout.getloc(), new comma_separator));
 
-        if(CurveIsInBound(curve, domain)) {
-            aBoard << curve;
-
-            // Construct the Freeman chain
-            Contour4 boundaryBorder(boundaryPoints);
-            
-            // Segmentation
-            Decomposition4 boundaryDecomposition(boundaryBorder.begin(),boundaryBorder.end(), DSS4());
-
-            // Draw each segment
-            for (auto it = boundaryDecomposition.begin(), itEnd = boundaryDecomposition.end(); it != itEnd; ++it) {
-                aBoard << SetMode("ArithmeticalDSS", "BoundingBox");
-                aBoard << CustomStyle("ArithmeticalDSS/BoundingBox", new CustomPenColor(Color::Blue));
-                aBoard << it->primitive();
-            }
-        }
+    for(std::size_t c = 0; c < dataset.size(); c++) {
+        csv << dataset[c].first;
+        if(c != dataset.size() - 1) { csv << separator; }
     }
-    const std::string filePath = "./img/CurvesAndDss_" + fileName + "_" + (is4_8 ? "4_8" : "8_4") + ".pdf";
-    aBoard.saveCairo(filePath.c_str(), Board2D::CairoPDF);
-    std::cout << "boundaries saved as path : " << filePath << std::endl;
-}
+    csv << std::endl;
 
+    for(std::size_t i = 0; i < dataset[0].second.size(); i++) {
+        for(std::size_t c = 0; c < dataset.size(); c++) {
+            csv << dataset[c].second[i];
+            if(c != dataset.size() - 1) { csv << separator; }
+        }
+        csv << std::endl;
+    }
+    csv.close();
+    std::cout << "file " << filename << " saved." << std::endl; 
+}
 
 int main(int argc, char** argv) {
     setlocale(LC_NUMERIC, "us_US"); //To prevent French local settings
@@ -152,36 +130,79 @@ int main(int argc, char** argv) {
     // (4,8) adjacency
     vector<ObjectType48> objects48; // All conected components are going to be stored in it
     back_insert_iterator<vector<ObjectType48>> inserter48(objects48); // Iterator used to populated "objects".
-    // (8,4) adjacency
-    vector<ObjectType84> objects84;
-    back_insert_iterator<vector<ObjectType84>> inserter84(objects84);
 
     // 4) Use method writeComponents to obtain connected components
     // (4,8) adjacency
     ObjectType48 connectedComponents48(dt4_8, set2d);
     connectedComponents48.writeComponents(inserter48);
-    // (8,4) adjacency
-    ObjectType84 connectedComponents84(dt8_4, set2d);
-    connectedComponents84.writeComponents(inserter84);
 
-    const bool boundariesElimination = true;
-    int count48;
-    int count84;
+    std::vector<double> perimeters;
+    std::vector<double> areas;
+    std::vector<double> circularities;
 
-    if(boundariesElimination) {
-        auto limit = image.domain().upperBound()*2;
-        count48 = exportCurves(image.domain(), objects48, true, fileName, "boundariesElimination", true);
-        count84 = exportCurves(image.domain(), objects84, false, fileName, "boundariesElimination", true);
-    }else {
-        count48 = exportCurves(image.domain(), objects48, true, fileName, "NotWellFormed");
-        count84 = exportCurves(image.domain(), objects84, false, fileName, "NotWellFormed");
+    const bool is4_8 = true;
+    for (auto &obj : objects48) {
+
+        double perimeter = 0;
+        double area = 0;
+
+        vector<Z2i::Point> boundaryPoints = getBoundariesPoints(obj, is4_8);
+        Z2i::Curve curve;
+        curve.initFromVector(boundaryPoints);
+
+        if(CurveIsInBound(curve, image.domain())) {
+            // Construct the Freeman chain
+            Contour4 boundaryBorder(boundaryPoints);
+            
+            // Segmentation
+            Decomposition4 boundaryDecomposition(boundaryBorder.begin(),boundaryBorder.end(), DSS4());
+            
+            // for each segment
+            Z2i::Point firstPoint = boundaryDecomposition.begin().get().front();
+            Z2i::Point lastPoint;
+            for (auto it = boundaryDecomposition.begin(); it != boundaryDecomposition.end(); ++it) {
+                const Z2i::Point a = it.get().front();
+                const Z2i::Point b = it.get().back();
+                perimeter += (b-a).norm();
+                area += a[0] * b[1] - a[1] * b[0];
+                lastPoint = b;
+            }
+
+            perimeter += (firstPoint-lastPoint).norm();
+            area += lastPoint[0] * firstPoint[1] - lastPoint[1] * firstPoint[0];
+            area = abs(area) / 2.0;
+
+            const double circularity = (4 * M_PI * area) / (perimeter * perimeter);
+
+            perimeters.push_back(perimeter);
+            areas.push_back(area);
+            circularities.push_back(circularity);
+        }
     }
 
-    std::cout << "Nombre de grains de riz " << fileName <<  " 4_8: " << count48 << std::endl;
-    std::cout << "Nombre de grains de riz " << fileName <<  " 8_4: " << count84 << std::endl;
+    // export to csv
+    
+    std::vector<std::pair<std::string, std::vector<double>>> dataset = {{"perimeter", perimeters}, {"area", areas}, {"circularity", circularities}};
+    writeCsv("./data_"+ fileName +".csv", dataset);
 
-    exportCurvesAndDss(image.domain(), objects48, true, fileName);
-    exportCurvesAndDss(image.domain(), objects84, false, fileName);
+    /*
+    ofstream data("./data_"+ fileName +".csv");
+    
+    data << "perimeter, ";
+    // for(const double x : perimeters) { data << x << ", "; }
+    std::copy(perimeters.begin(), perimeters.end(), std::ostream_iterator<double>(data, ", "));
+    data << std::endl;
+
+    data << "area, ";
+    std::copy(areas.begin(), areas.end(), std::ostream_iterator<double>(data, ", "));
+    data << std::endl;
+
+    data << "circularity, ";
+    std::copy(circularities.begin(), circularities.end(), std::ostream_iterator<double>(data, ", "));
+    data << std::endl;
+
+    data.close();
+    */
 
     return 0;
 }
