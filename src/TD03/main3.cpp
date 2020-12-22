@@ -182,7 +182,7 @@ int main(int argc, char** argv) {
         currentTranslation -= translations[i];
         std::cout << "rot: " << currentAngle << " trans: " << currentTranslation << std::endl;
         // rotate around the center of mass of the corresponding image (i+1)
-        rigidTransformAndExport(image, massCenters[i+1], currentAngle, currentTranslation, "./out/IMG_" + std::to_string(2764 + i) + "_motionTo2763");
+        rigidTransformAndExport(image, massCenters[i+1], currentAngle, currentTranslation, "./img/IMG_" + std::to_string(2764 + i) + "_motionTo2763");
     }
 
     return 0;
