@@ -21,12 +21,17 @@
 #include "DGtal/images/RigidTransformation2D.h"
 #include "DGtal/images/ConstImageAdapter.h"
 
+#include <boost/algorithm/minmax_element.hpp>
+#include <DGtal/geometry/volumes/distance/DistanceTransformation.h>
+#include <DGtal/io/colormaps/HueShadeColorMap.h>
+#include <DGtal/io/colormaps/GrayscaleColorMap.h>
+
 using namespace std;
 using namespace DGtal;
 using namespace Z2i;
 using namespace functors;
 
-typedef ImageSelector<Domain, unsigned char >::Type ImageType; // type of image
+typedef ImageSelector<Domain, unsigned char>::Type ImageType; // type of image (int instead of unsigend char to hndle negative values in IntervalForegroundPredicate)
 typedef DigitalSetSelector<Domain, BIG_DS+HIGH_BEL_DS >::Type DigitalSetType; // Digital set type
 typedef Object<DT4_8, DigitalSetType> ObjectType48;
 typedef Object<DT8_4, DigitalSetType> ObjectType84;
@@ -38,6 +43,10 @@ typedef ConstImageAdapter<ImageType, Domain, BackwardTrans, ImageType::Value, Id
 typedef DomainRigidTransformation2D < Domain, ForwardTrans > MyDomainTransformer;
 typedef MyDomainTransformer::Bounds Bounds;
 
+// distance field
+typedef DGtal::functors::IntervalForegroundPredicate<ImageType> Binarizer;
+typedef DGtal::DistanceTransformation<Z2i::Space, Binarizer, Z2i::L2Metric> DTL2;
+typedef DGtal::HueShadeColorMap<DTL2::Value,2> HueTwice;
 
 const ObjectType48& keepLargerComponent(const vector<ObjectType48>& objs) {
     size_t maxId = 0;
@@ -61,9 +70,26 @@ void rigidTransformAndExport(const ImageType& img, const Z2i::Point& origin , co
     // Domain transformedDomain(bounds.first, bounds.second);
     // MyImageBackwardAdapter backwardImageAdapter(img, transformedDomain, backwardTrans, idD);
 
-    // keep the same domain for comparaison
+    // keep the same domain for comparaison purposes
     MyImageBackwardAdapter backwardImageAdapter(img, img.domain(), backwardTrans, idD);
     backwardImageAdapter >> (fileName + ".pgm");
+}
+
+ImageType rigidTransform(const ImageType& img, const Z2i::Point& origin , const double& angle, const Z2i::Point& translation) {
+
+    BackwardTrans backwardTrans(origin, angle, translation);
+    Identity idD;
+    
+    MyImageBackwardAdapter backwardImageAdapter(img, img.domain(), backwardTrans, idD);
+
+
+    ImageType transformedImage(img.domain());
+
+    for ( Domain::ConstIterator it = img.domain().begin(); it != img.domain().end(); ++it ) {
+        transformedImage.setValue(*it, backwardImageAdapter ( *it ));
+    }
+
+    return transformedImage;
 }
 
 std::vector<Z2i::Point> getPts(const ObjectType48& obj) {
@@ -97,8 +123,7 @@ Z2i::Point getMassCenter(const ObjectType48& obj) {
 Eigen::Vector2d getPrincipalEigenValue(const ObjectType48& obj) {
     Eigen::MatrixXd pts = toEigenMat(getPts(obj));
 
-    // Mean centering pts
-    Eigen::MatrixXd centered = pts.rowwise() - pts.colwise().mean();
+    Eigen::MatrixXd centered = pts.rowwise() - pts.colwise().mean(); // Mean centering pts
     
     // Compute the covariance matrix
     // cov(X,Y) = E[(X-E[X])(Y-E[Y])]
@@ -107,16 +132,32 @@ Eigen::Vector2d getPrincipalEigenValue(const ObjectType48& obj) {
     Eigen::MatrixXd cov = centered.transpose() * centered;
     cov = cov / (centered.rows() - 1);
 
-    static const Eigen::IOFormat CleanFmt(4, 0, ", ", "\n", "[", "]");
-    
-    // std::cout << "cov:" << std::endl << cov << std::endl;
-
     Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eig(cov);
-
-    // std::cout << "eigenvectors:" << std::endl << eig.eigenvectors().format(CleanFmt) << std::endl;
-
     // return last eigenVec (max eigenVal)
     return eig.eigenvectors().col(1);
+}
+
+float distance(const ImageType& img1, const ImageType& img2, const std::string& prefixe) {
+
+    Binarizer bin1 (img1, -1, 0);
+    Binarizer bin2 (img2, -2, 0);
+
+    DTL2 bd1(&img1.domain(),&bin1, &DGtal::Z2i::l2Metric);
+
+    //auto bd1 = DistanceTransform(&img1.domain(), &bin1, &DGtal::Z2i::l2Metric); // backgroundDistanceTransform1
+    //auto bd2 = DistanceTransform(&img2.domain(), &bin2, &DGtal::Z2i::l2Metric);
+
+    auto maxD1 = *boost::first_max_element(bd1.constRange().begin(), bd1.constRange().end(), std::less<DTL2::Value>());
+    
+    cout << maxD1 << std::endl;
+
+    DGtal::Board2D aBoard;
+
+    aBoard.clear();
+    Display2DFactory::drawImage<HueTwice>(aBoard, bd1, (DTL2::Value)0, (DTL2::Value)maxD1);
+    aBoard.saveEPS((prefixe + ".eps").c_str());
+
+    return 1.0f;
 }
 
 int main(int argc, char** argv) {
@@ -182,8 +223,11 @@ int main(int argc, char** argv) {
         currentTranslation -= translations[i];
         std::cout << "rot: " << currentAngle << " trans: " << currentTranslation << std::endl;
         // rotate around the center of mass of the corresponding image (i+1)
-        rigidTransformAndExport(image, massCenters[i+1], currentAngle, currentTranslation, "./img/IMG_" + std::to_string(2764 + i) + "_motionTo2763");
-    }
 
+        ImageType transformed = rigidTransform(image, massCenters[i+1], currentAngle, currentTranslation);
+        transformed >> ("img/IMG_" + std::to_string(2764 + i) + "_motionTo2763.pgm");
+
+        distance(image, transformed, "img/IMG_" + std::to_string(2764 + i) + "_motionTo2763");
+    }
     return 0;
 }
