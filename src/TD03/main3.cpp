@@ -215,7 +215,7 @@ int main(int argc, char** argv) {
     std::vector<Z2i::Point> massCenters;
     std::vector<Eigen::Vector2d> maxEigenVecs;
 
-    for(int i = 2763; i < 2767; ++i) {
+    for(int i = 2763; i <= 2767; ++i) {
         const std::string filePath = fStart + std::to_string(i) + fEnd;
         std::cout << "filePath: " << filePath << std::endl;
 
@@ -256,7 +256,6 @@ int main(int argc, char** argv) {
 
         currentAngle -= rotations[i];
         currentTranslation -= translations[i];
-        std::cout << "rot: " << currentAngle << " trans: " << currentTranslation << std::endl;
 
         // rotate around the center of mass of the corresponding image (i+1)
         ImageType transformed = rigidTransform(image, massCenters[i+1], currentAngle, currentTranslation);
@@ -264,6 +263,7 @@ int main(int argc, char** argv) {
         // change ImageType to unsigned char
 
         std::cout << "distance between 2763 and " <<std::to_string(2764 + i) << " :" << std::endl;
+        std::cout << "rot: " << currentAngle << " trans: " << currentTranslation << std::endl;
         std::cout << "before : " << hausdorffDistance(firstImg, image) << " - " << DubuissonJainDistance(firstImg, image) << std::endl;
         std::cout << "after : " << hausdorffDistance(firstImg, transformed) << " - " << DubuissonJainDistance(firstImg, transformed) << std::endl;
     }
