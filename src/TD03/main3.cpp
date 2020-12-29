@@ -31,7 +31,9 @@ using namespace DGtal;
 using namespace Z2i;
 using namespace functors;
 
-typedef ImageSelector<Domain, unsigned char>::Type ImageType; // type of image (int instead of unsigend char to hndle negative values in IntervalForegroundPredicate)
+typedef ImageSelector<Domain, int>::Type ImageType; // type of image (int instead of unsigend char to handle negative values in IntervalForegroundPredicate)
+// change to unsigned char went you want to save file as .pgm
+
 typedef DigitalSetSelector<Domain, BIG_DS+HIGH_BEL_DS >::Type DigitalSetType; // Digital set type
 typedef Object<DT4_8, DigitalSetType> ObjectType48;
 typedef Object<DT8_4, DigitalSetType> ObjectType84;
@@ -137,28 +139,72 @@ Eigen::Vector2d getPrincipalEigenValue(const ObjectType48& obj) {
     return eig.eigenvectors().col(1);
 }
 
-float distance(const ImageType& img1, const ImageType& img2, const std::string& prefixe) {
+ObjectType48 largerComponentObjectFromImage(const ImageType& image) {
+
+    Z2i::DigitalSet set2d(image.domain());
+    SetFromImage<Z2i::DigitalSet>::append<ImageType>(set2d, image, 1, 255);
+
+    // Create a digital object from the digital set(4,8) adjacency
+    vector<ObjectType48> objects48;
+    back_insert_iterator<vector<ObjectType48>> inserter48(objects48);
+
+    ObjectType48 connectedComponents48(dt4_8, set2d);
+    connectedComponents48.writeComponents(inserter48);
+
+    return keepLargerComponent(objects48); // keep only larger component
+}
+
+float hausdorffDistance(const ImageType& img1, const ImageType& img2) {
+
+    const ObjectType48 obj1 = largerComponentObjectFromImage(img1);
+    const ObjectType48 obj2 = largerComponentObjectFromImage(img2);
 
     Binarizer bin1 (img1, -1, 0);
-    Binarizer bin2 (img2, -2, 0);
+    Binarizer bin2 (img2, -1, 0);
+    DTL2 bd1(&img1.domain(),&bin1, &DGtal::Z2i::l2Metric); // BackgroundDistance
+    DTL2 bd2(&img1.domain(),&bin2, &DGtal::Z2i::l2Metric);
 
-    DTL2 bd1(&img1.domain(),&bin1, &DGtal::Z2i::l2Metric);
+    Point max1 = *std::max_element(
+        obj1.pointSet().begin(), obj1.pointSet().end(), [&bd2](Point const & first, Point const & second) -> bool {
+            return bd2(first) <= bd2(second); 
+        }
+    );
 
-    //auto bd1 = DistanceTransform(&img1.domain(), &bin1, &DGtal::Z2i::l2Metric); // backgroundDistanceTransform1
-    //auto bd2 = DistanceTransform(&img2.domain(), &bin2, &DGtal::Z2i::l2Metric);
+    Point max2 = *std::max_element(
+        obj2.pointSet().begin(), obj2.pointSet().end(), [&bd1](Point const & first, Point const & second) -> bool {
+            return bd1(first) <= bd1(second); 
+        }
+    );
 
-    auto maxD1 = *boost::first_max_element(bd1.constRange().begin(), bd1.constRange().end(), std::less<DTL2::Value>());
-    
-    cout << maxD1 << std::endl;
-
-    DGtal::Board2D aBoard;
-
-    aBoard.clear();
-    Display2DFactory::drawImage<HueTwice>(aBoard, bd1, (DTL2::Value)0, (DTL2::Value)maxD1);
-    aBoard.saveEPS((prefixe + ".eps").c_str());
-
-    return 1.0f;
+    return std::max(bd2(max1), bd1(max2));
 }
+
+float DubuissonJainDistance(const ImageType& img1, const ImageType& img2) {
+
+    const ObjectType48 obj1 = largerComponentObjectFromImage(img1);
+    const ObjectType48 obj2 = largerComponentObjectFromImage(img2);
+
+    Binarizer bin1 (img1, -1, 0);
+    Binarizer bin2 (img2, -1, 0);
+    DTL2 bd1(&img1.domain(),&bin1, &DGtal::Z2i::l2Metric); // BackgroundDistance
+    DTL2 bd2(&img1.domain(),&bin2, &DGtal::Z2i::l2Metric);
+
+
+    float mean1 = 0.0f;
+    for(const Point &p : obj1.pointSet()) {
+        mean1 += bd2(p);
+    }
+    mean1 /= obj1.pointSet().size();
+
+    float mean2 = 0.0f;
+    for(const Point &p : obj2.pointSet()) {
+        mean2 += bd1(p);
+    }
+    mean2 /= obj2.pointSet().size();
+
+    return std::max(mean1, mean2);
+}
+
 
 int main(int argc, char** argv) {
     setlocale(LC_NUMERIC, "us_US"); //To prevent French local settings
@@ -174,18 +220,7 @@ int main(int argc, char** argv) {
         std::cout << "filePath: " << filePath << std::endl;
 
         ImageType image = PGMReader<ImageType>::importPGM(filePath);
-
-        Z2i::DigitalSet set2d(image.domain());
-        SetFromImage<Z2i::DigitalSet>::append<ImageType>(set2d, image, 1, 255);
-
-        // Create a digital object from the digital set(4,8) adjacency
-        vector<ObjectType48> objects48;
-        back_insert_iterator<vector<ObjectType48>> inserter48(objects48);
-
-        ObjectType48 connectedComponents48(dt4_8, set2d);
-        connectedComponents48.writeComponents(inserter48);
-
-        const ObjectType48& larger = keepLargerComponent(objects48); // keep only larger component
+        const ObjectType48 larger = largerComponentObjectFromImage(image); // keep only larger component
 
         massCenters.push_back(getMassCenter(larger));
         maxEigenVecs.push_back(getPrincipalEigenValue(larger));
@@ -213,7 +248,7 @@ int main(int argc, char** argv) {
 
     static const Z2i::Point zero(0.0, 0.0);
 
-    ImageType image = PGMReader<ImageType>::importPGM(fStart + "2763" + fEnd);
+    ImageType firstImg = PGMReader<ImageType>::importPGM(fStart + "2763" + fEnd);
     double currentAngle = 0.0;
     Z2i::Point currentTranslation(0.0, 0.0);
     for(int i = 0; i < rotations.size(); ++i) {
@@ -222,12 +257,15 @@ int main(int argc, char** argv) {
         currentAngle -= rotations[i];
         currentTranslation -= translations[i];
         std::cout << "rot: " << currentAngle << " trans: " << currentTranslation << std::endl;
+
         // rotate around the center of mass of the corresponding image (i+1)
-
         ImageType transformed = rigidTransform(image, massCenters[i+1], currentAngle, currentTranslation);
-        transformed >> ("img/IMG_" + std::to_string(2764 + i) + "_motionTo2763.pgm");
+        // transformed >> ("img/IMG_" + std::to_string(2764 + i) + "_motionTo2763.pgm");
+        // change ImageType to unsigned char
 
-        distance(image, transformed, "img/IMG_" + std::to_string(2764 + i) + "_motionTo2763");
+        std::cout << "distance between 2763 and " <<std::to_string(2764 + i) << " :" << std::endl;
+        std::cout << "before : " << hausdorffDistance(firstImg, image) << " - " << DubuissonJainDistance(firstImg, image) << std::endl;
+        std::cout << "after : " << hausdorffDistance(firstImg, transformed) << " - " << DubuissonJainDistance(firstImg, transformed) << std::endl;
     }
     return 0;
 }
